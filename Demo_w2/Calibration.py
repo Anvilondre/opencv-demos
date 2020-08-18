@@ -47,7 +47,7 @@ def calibrate(dirpath='calibration_data', prefix='snapshot_', image_format='jpg'
             # Display the corners
             if test_accuracy:
                 img = cv2.drawChessboardCorners(img, (width, height), corners2, ret)
-                cv2.imshow('1', img)
+                cv2.imshow('Accuracy test', img)
                 cv2.waitKey(test_accuracy_delay)
 
     return cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
