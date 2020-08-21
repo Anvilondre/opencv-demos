@@ -1,5 +1,34 @@
+import time
+
 import cv2
+import telebot
 from itertools import cycle
+from data.Token import token
+
+bot = telebot.TeleBot(token=token)
+
+
+@bot.message_handler(content_types=['photo'])
+def handle_image(message):
+    global counter  # Just for naming purposes
+    counter += 1
+    raw = message.photo[-1].file_id
+
+    src_path = f'data/scr_imgs/{counter}.jpg'
+    res_path = f'data/res_imgs/{counter}.jpg'
+
+    # Downloading a picture so we can precess it with OpenCV
+    file_info = bot.get_file(raw)
+    downloaded_file = bot.download_file(file_info.file_path)
+
+    with open(src_path, 'wb') as new_file:
+        new_file.write(downloaded_file)
+
+    pic = process_picture(src_path)
+    cv2.imwrite(res_path, pic)  # Saving the result so we can send it to user
+
+    with open(res_path, 'rb') as f:
+        bot.send_photo(message.chat.id, f)
 
 
 def convert_image(img):
@@ -45,11 +74,11 @@ def add_faces(img, replacements, faces):
     return res_img
 
 
-def run(as_file=False):
-    f_name = 'kavo.jpg'
+def process_picture(file_name):
+    # We need to make sure there are exactly 4 channels: RGB + Alpha
+    source_img = y if (y := cv2.imread(file_name, cv2.IMREAD_UNCHANGED)).shape[2] == 4 else convert_image(y)
 
-    source_img = y if (y := cv2.imread(f'data/scr_imgs/{f_name}', cv2.IMREAD_UNCHANGED)).shape[2] == 4 \
-        else convert_image(y)  # We need to make sure there are exactly 4 channels: RGB + Alpha
+    # TODO: Add different face masks functionality
     face_mask = cv2.imread('data/replacement_imgs/Vasya_face.png', cv2.IMREAD_UNCHANGED)
     face_mask = cycle([face_mask])  # Creating an iterator so we can cycle through different face replacements in future
 
@@ -61,12 +90,19 @@ def run(as_file=False):
     # Image with added/replaced faces
     img = add_faces(source_img, face_mask, faces)
 
-    if as_file:
-        cv2.imwrite(f'data/res_imgs/{f_name}', img)
-    else:
-        cv2.imshow(f_name, img)
-        cv2.waitKey(0)
+    return img
 
 
 if __name__ == '__main__':
-    run(as_file=False)
+
+    # TODO: Refactor in OOP style, removing redundant object creation on each iteration
+
+    global counter
+    counter = 0
+
+    # If bot encounters some unpredictable stuff just wait some time and reload
+    while True:
+        try:
+            bot.polling()
+        except Exception:
+            time.sleep(5)
