@@ -8,10 +8,17 @@ from data.Token import token
 bot = telebot.TeleBot(token=token)
 
 
+def write_counter():
+    global counter
+    with open('data/counter.txt', 'w') as w:
+        w.write(str(counter))
+
+
 @bot.message_handler(content_types=['photo'])
 def handle_image(message):
-    global counter  # Just for naming purposes
+    global counter, deep_face  # Counter is just for naming purposes
     counter += 1
+    write_counter()
     raw = message.photo[-1].file_id
 
     src_path = f'data/scr_imgs/{counter}.jpg'
@@ -24,7 +31,7 @@ def handle_image(message):
     with open(src_path, 'wb') as new_file:
         new_file.write(downloaded_file)
 
-    pic = process_picture(src_path)
+    pic = deep_face.process_picture(src_path)
     cv2.imwrite(res_path, pic)  # Saving the result so we can send it to user
 
     with open(res_path, 'rb') as f:
@@ -46,59 +53,66 @@ def find_face_positions(img, classifier):
     return faces
 
 
-def overlay_image(background, foreground, x, y, w, h):
-    """Scales foreground image to (w, h) size and adds it to the background image at (x, y) - top left corner."""
-    replacement = cv2.resize(foreground, (w, h), cv2.INTER_CUBIC)
-    img = background.copy()
-    roi = img[y:y + h, x:x + w]
-    img2gray = cv2.cvtColor(replacement, cv2.COLOR_BGR2GRAY)
-    ret, mask = cv2.threshold(img2gray, 10, 255, cv2.THRESH_BINARY)
-    mask_inv = cv2.bitwise_not(mask)
-    img1_bg = cv2.bitwise_and(roi, roi, mask=mask_inv)
-    img2_fg = cv2.bitwise_and(replacement, replacement, mask=mask)
-    dst = cv2.add(img1_bg, img2_fg)
-    img[y: y + h, x:x + w] = dst
-    return img
+class Face_Replacer:
 
+    def __init__(self, mask_images: iter):
 
-def add_faces(img, replacements, faces):
-    """Replaces all the faces if any found. Otherwise just adds a face in the bottom middle."""
-    res_img = img.copy()
-    if faces is None or len(faces) == 0:
-        w, h = res_img.shape[1] // 5, res_img.shape[0] // 3
-        x, y = res_img.shape[1] // 2 - w // 2, res_img.shape[0] - h
-        res_img = overlay_image(res_img, next(replacements), x, y, w, h)
-    for face in faces:
-        res_img = overlay_image(res_img, next(replacements), *face)
+        # Initializing a built-in cascade classifier to detect faces
+        self.face_cascade = cv2.CascadeClassifier()
+        self.face_cascade.load(cv2.samples.findFile('data/haarcascades/haarcascade_frontalface_alt.xml'))
 
-    return res_img
+        self.mask_images = mask_images
 
+    def overlay_image(self, background, x, y, w, h):
+        """Scales foreground image to (w, h) size and adds it to the background image at (x, y) - top left corner."""
+        replacement = cv2.resize(next(self.mask_images), (w, h), cv2.INTER_CUBIC)
+        img = background.copy()
+        roi = img[y:y + h, x:x + w]
+        img2gray = cv2.cvtColor(replacement, cv2.COLOR_BGR2GRAY)
+        ret, mask = cv2.threshold(img2gray, 10, 255, cv2.THRESH_BINARY)
+        mask_inv = cv2.bitwise_not(mask)
+        img1_bg = cv2.bitwise_and(roi, roi, mask=mask_inv)
+        img2_fg = cv2.bitwise_and(replacement, replacement, mask=mask)
+        dst = cv2.add(img1_bg, img2_fg)
+        img[y: y + h, x:x + w] = dst
+        return img
 
-def process_picture(file_name):
-    # We need to make sure there are exactly 4 channels: RGB + Alpha
-    source_img = y if (y := cv2.imread(file_name, cv2.IMREAD_UNCHANGED)).shape[2] == 4 else convert_image(y)
+    def add_faces(self, img, faces):
+        """Replaces all the faces if any found. Otherwise just adds a face in the bottom middle."""
+        res_img = img.copy()
+        if faces is None or len(faces) == 0:
+            w, h = res_img.shape[1] // 5, res_img.shape[0] // 3
+            x, y = res_img.shape[1] // 2 - w // 2, res_img.shape[0] - h
+            res_img = self.overlay_image(res_img, x, y, w, h)
+        for face in sorted(faces, key=lambda x: x[2] * x[3]):
+            face[2], face[3] = 0.9 * face[2], 1.1 * face[3]
+            face[0] += face[2] * 0.05
+            res_img = self.overlay_image(res_img, *face)
 
-    # TODO: Add different face masks functionality
-    face_mask = cv2.imread('data/replacement_imgs/Vasya_face.png', cv2.IMREAD_UNCHANGED)
-    face_mask = cycle([face_mask])  # Creating an iterator so we can cycle through different face replacements in future
+        return res_img
 
-    # Initializing a built-in cascade classifier to detect faces
-    face_cascade = cv2.CascadeClassifier()
-    face_cascade.load(cv2.samples.findFile('data/haarcascades/haarcascade_frontalface_alt.xml'))
-    faces = find_face_positions(source_img, face_cascade)
+    def process_picture(self, file_name):
+        # We need to make sure there are exactly 4 channels: RGB + Alpha
+        source_img = y if (y := cv2.imread(file_name, cv2.IMREAD_UNCHANGED)).shape[2] == 4 else convert_image(y)
 
-    # Image with added/replaced faces
-    img = add_faces(source_img, face_mask, faces)
+        # Detect faces on image
+        faces = find_face_positions(source_img, self.face_cascade)
 
-    return img
+        # Image with added/replaced faces
+        img = self.add_faces(source_img, faces)
+
+        return img
 
 
 if __name__ == '__main__':
+    global counter, deep_face
 
-    # TODO: Refactor in OOP style, removing redundant object creation on each iteration
+    face_mask = cv2.imread('data/replacement_imgs/Vasya_face.png', cv2.IMREAD_UNCHANGED)
+    face_mask = cycle([face_mask])  # Creating an iterator so we can cycle through different face replacements in future
+    deep_face = Face_Replacer(face_mask)
 
-    global counter
-    counter = 0
+    with open('data/counter.txt', 'r') as r:
+        counter = int(r.read())
 
     # If bot encounters some unpredictable stuff just wait some time and reload
     while True:
