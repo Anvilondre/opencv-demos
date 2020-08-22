@@ -4,6 +4,7 @@ import cv2
 import telebot
 from itertools import cycle
 from data.Token import token
+from glob import glob
 
 bot = telebot.TeleBot(token=token)
 
@@ -92,6 +93,7 @@ class Face_Replacer:
         return res_img
 
     def process_picture(self, file_name):
+        """Connects everything together."""
         # We need to make sure there are exactly 4 channels: RGB + Alpha
         source_img = y if (y := cv2.imread(file_name, cv2.IMREAD_UNCHANGED)).shape[2] == 4 else convert_image(y)
 
@@ -107,9 +109,9 @@ class Face_Replacer:
 if __name__ == '__main__':
     global counter, deep_face
 
-    face_mask = cv2.imread('data/replacement_imgs/Vasya_face.png', cv2.IMREAD_UNCHANGED)
-    face_mask = cycle([face_mask])  # Creating an iterator so we can cycle through different face replacements in future
-    deep_face = Face_Replacer(face_mask)
+    # Creating an iterator for replacement faces
+    face_masks = cycle(cv2.imread(y, cv2.IMREAD_UNCHANGED) for y in glob('data/replacement_imgs/*.png'))
+    deep_face = Face_Replacer(face_masks)
 
     with open('data/counter.txt', 'r') as r:
         counter = int(r.read())
@@ -119,4 +121,5 @@ if __name__ == '__main__':
         try:
             bot.polling()
         except Exception:
+            print(f"Something went wrong! Image number: {counter}")
             time.sleep(5)
