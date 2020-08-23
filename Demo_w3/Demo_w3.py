@@ -25,7 +25,7 @@ def handle_image(message):
     src_path = f'data/scr_imgs/{counter}.jpg'
     res_path = f'data/res_imgs/{counter}.jpg'
 
-    # Downloading a picture so we can precess it with OpenCV
+    # Downloading a received picture to process it with OpenCV
     file_info = bot.get_file(raw)
     downloaded_file = bot.download_file(file_info.file_path)
 
@@ -33,17 +33,10 @@ def handle_image(message):
         new_file.write(downloaded_file)
 
     pic = deep_face.process_picture(src_path)
-    cv2.imwrite(res_path, pic)  # Saving the result so we can send it to user
+    cv2.imwrite(res_path, pic)  # Saving the result to send it back
 
     with open(res_path, 'rb') as f:
         bot.send_photo(message.chat.id, f)
-
-
-def convert_image(img):
-    """Just copies the blue channel and adds it as an alpha channel."""
-    b_channel, g_channel, r_channel = cv2.split(img)
-    alpha_channel = b_channel
-    return cv2.merge((b_channel, g_channel, r_channel, alpha_channel))
 
 
 def find_face_positions(img, classifier):
@@ -94,8 +87,9 @@ class Face_Replacer:
 
     def process_picture(self, file_name):
         """Connects everything together."""
-        # We need to make sure there are exactly 4 channels: RGB + Alpha
-        source_img = y if (y := cv2.imread(file_name, cv2.IMREAD_UNCHANGED)).shape[2] == 4 else convert_image(y)
+        # We need to make sure there are exactly 4 channels: BGR + Alpha
+        source_img = y if (y := cv2.imread(file_name, cv2.IMREAD_UNCHANGED)).shape[2] == 4 \
+            else cv2.cvtColor(y, cv2.COLOR_BGR2BGRA)
 
         # Detect faces on image
         faces = find_face_positions(source_img, self.face_cascade)
